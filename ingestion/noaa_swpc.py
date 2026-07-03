@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.domain.bucket_retention_rules import BucketRetentionRules
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -22,6 +23,39 @@ class NOAAIngestor:
         self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
         self.bucket = db_config['bucket']
         
+        # Enforce retention policy
+        retention_days = db_config.get('retention_days', 30)
+        self._enforce_retention(retention_days)
+        
+    def _enforce_retention(self, days: int):
+        try:
+            buckets_api = self.influx_client.buckets_api()
+            bucket = buckets_api.find_bucket_by_name(self.bucket)
+            if bucket:
+                retention_seconds = days * 24 * 60 * 60
+                
+                # Check current rules
+                needs_update = True
+                if bucket.retention_rules:
+                    current_rule = bucket.retention_rules[0]
+                    # Note: API might return a dict or an object depending on version
+                    if hasattr(current_rule, 'every_seconds') and current_rule.every_seconds == retention_seconds:
+                        needs_update = False
+                    elif isinstance(current_rule, dict) and current_rule.get('every_seconds') == retention_seconds:
+                        needs_update = False
+                        
+                if needs_update:
+                    rule = BucketRetentionRules(type='expire', every_seconds=retention_seconds)
+                    bucket.retention_rules = [rule]
+                    buckets_api.update_bucket(bucket)
+                    logging.info(f"Enforced {days}-day retention policy on InfluxDB bucket '{self.bucket}'.")
+                else:
+                    logging.info(f"Retention policy for '{self.bucket}' is already set to {days} days.")
+            else:
+                logging.warning(f"Bucket '{self.bucket}' not found. Retention policy could not be set.")
+        except Exception as e:
+            logging.error(f"Failed to enforce bucket retention policy: {e}")
+
     def _load_config(self, path: str) -> Dict[str, Any]:
         try:
             with open(path, 'r') as f:

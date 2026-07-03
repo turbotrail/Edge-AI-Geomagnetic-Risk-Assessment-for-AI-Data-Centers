@@ -16,6 +16,7 @@ database:
     token: "your-influxdb-token-here"
     org: "spacewx"
     bucket: "realtime_data"
+    retention_days: 10
 
 api_keys:
   weather_api: "" # Optional

@@ -1,0 +1,54 @@
+# System Configuration for Edge AI Geomagnetic Risk Assessment
+
+data_ingestion:
+  noaa_swpc_url: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
+  solar_wind_url: "https://services.swpc.noaa.gov/products/summary/solar-wind-speed.json"
+  solar_mag_url: "https://services.swpc.noaa.gov/products/summary/solar-wind-mag-field.json"
+  f107_flux_url: "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
+  intermagnet_url: "https://imag-data.bgs.ac.uk/GIN_V1/hapi/data"  # Example HAPI or mock endpoint
+  update_interval_seconds: 60
+  usgs_stations: ["BOU", "BRW", "BSL", "CMO", "DED", "FRD", "NEW", "SHU", "SIT", "SJG", "TUC", "HON"]
+  intermagnet_stations: ["ESK", "HAD", "LER", "NGK", "BEL"]
+
+database:
+  influxdb:
+    url: "http://influxdb:8086"
+    token: "your-influxdb-token-here"
+    org: "spacewx"
+    bucket: "realtime_data"
+
+api_keys:
+  weather_api: "" # Optional
+
+logging:
+  level: "INFO"
+
+datacenters:
+  - id: "us-east-1"
+    name: "Ashburn Data Center Alley (VA)"
+    lat: 39.0438
+    lon: -77.4874
+    grid_region: "PJM"
+    redundancy_score: 0.9
+    geology: "moderate"
+  - id: "eu-north-1"
+    name: "Luleå AI Hub (Sweden)"
+    lat: 65.5848
+    lon: 22.1567
+    grid_region: "Nordic"
+    redundancy_score: 0.85
+    geology: "high_resistivity"
+  - id: "us-west-2"
+    name: "Prineville AI Campus (OR)"
+    lat: 44.2998
+    lon: -120.8346
+    grid_region: "WECC"
+    redundancy_score: 0.95
+    geology: "moderate"
+  - id: "eu-west-1"
+    name: "Dublin Hub (Ireland)"
+    lat: 53.3498
+    lon: -6.2603
+    grid_region: "EirGrid"
+    redundancy_score: 0.8
+    geology: "low_resistivity"

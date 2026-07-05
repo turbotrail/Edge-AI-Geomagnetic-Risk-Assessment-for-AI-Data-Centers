@@ -39,8 +39,14 @@ class DataCenterExposure:
         # Higher redundancy lowers the risk exposure
         redundancy_mitigation = dc.get("redundancy_score", 0.5)
         
-        # Base risk is the grid stress, mitigated by facility redundancy
-        exposure = regional_grid_stress * (1.0 - redundancy_mitigation)
+        # Add a continuous static baseline risk based on latitude 
+        # (Higher latitudes exponentially increase risk due to auroral electrojet proximity)
+        lat = dc.get("lat", 0.0)
+        abs_lat = abs(lat)
+        baseline_lat_risk = (abs_lat / 90.0) ** 2
+            
+        # Base risk is the grid stress + static baseline, mitigated by facility redundancy
+        exposure = (regional_grid_stress + baseline_lat_risk) * (1.0 - redundancy_mitigation)
         
         # Normalize
         return min(max(exposure, 0.0), 1.0)

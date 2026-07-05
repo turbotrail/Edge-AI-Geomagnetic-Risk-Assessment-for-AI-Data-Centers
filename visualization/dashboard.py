@@ -12,7 +12,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from analytics.datacenter_exposure import DataCenterExposure
 from analytics.grid_stress import GridStressIndex
+from ml.risk_model import RiskEngine
 from ingestion.historical_replay import HistoricalReplay
+import json
 
 st.set_page_config(
     page_title="Geomagnetic Risk Dashboard",
@@ -122,7 +124,7 @@ with st.sidebar:
         st.error("Database: DISCONNECTED")
     
     st.divider()
-    view = st.radio("Select View", ["Live Dashboard", "Data Center Risk Map"])
+    view = st.radio("Select View", ["Live Dashboard", "Data Center Risk Map", "Alerts", "Analytics"])
 
 # Determine Data Source
 data_source = "noaa_swpc"
@@ -350,6 +352,9 @@ elif view == "Data Center Risk Map":
     st.header("AI Data Center Risk Exposure")
     st.write("Regional risk assessment based on magnetic latitude, ground geology, and grid stress.")
     
+    # Instantiate Risk Engine for ML calculations
+    risk_engine = RiskEngine(model_path=os.path.join(os.path.dirname(__file__), '..', 'ml', 'models', 'risk_model.joblib'))
+    
     # Calculate risk for all DCs
     map_data = []
     for dc in exposure_engine.get_all_datacenters():
@@ -358,19 +363,36 @@ elif view == "Data Center Risk Map":
         
         if not df_dc_mag.empty:
             local_stress = stress_engine.calculate_index_from_dbdt(df_dc_mag['db_dt'].values, dc["lat"], bt=live_bt, bz=live_bz)
+            local_ground_activity = min(abs(df_dc_mag['db_dt'].values[-1]) / 10.0, 1.0)
         else:
             local_stress = 0.0
+            local_ground_activity = 0.0
             
         exposure = exposure_engine.calculate_facility_exposure(dc["id"], local_stress)
+        storm_severity = min(live_kp / 9.0, 1.0) if live_kp > 0 else 0.5
         
-        # Color coding: Green (Low), Yellow (Moderate), Red (High)
-        color = "#00FF00" if exposure < 0.3 else "#FFFF00" if exposure < 0.7 else "#FF0000"
+        # Feed all 4 features into the ML Model for this specific data center
+        ml_risk_score = risk_engine.calculate_risk_score(storm_severity, local_ground_activity, local_stress, exposure)
+        alert_level = risk_engine.get_alert_level(ml_risk_score)
+        
+        ml_risk_score = round(ml_risk_score, 4)
+        
+        # Color coding: Green (Low), Yellow (Moderate), Orange (High), Red (Critical)
+        if alert_level == "CRITICAL":
+            color = "#FF0000"
+        elif alert_level == "HIGH":
+            color = "#FFA500"
+        elif alert_level == "MODERATE":
+            color = "#FFFF00"
+        else:
+            color = "#00FF00"
         
         map_data.append({
             "name": dc["name"],
             "lat": dc["lat"],
             "lon": dc["lon"],
-            "risk": exposure,
+            "risk": ml_risk_score,
+            "alert": alert_level,
             "color": color
         })
         
@@ -379,6 +401,94 @@ elif view == "Data Center Risk Map":
     st.map(df_map, color="color", size=5000)
     
     st.subheader("Facility Breakdown")
-    st.dataframe(df_map[["name", "lat", "lon", "risk"]])
+    # Display the ML risk and the resulting alert level
+    st.dataframe(df_map[["name", "lat", "lon", "risk", "alert"]])
+
+elif view == "Alerts":
+    st.header("Recent System Alerts")
+    st.write("A log of recent risk assessments and triggered alerts.")
+    
+    alerts_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'realtime', 'alerts', 'active_alerts.jsonl')
+    alerts_data = []
+    
+    if os.path.exists(alerts_file):
+        with open(alerts_file, 'r') as f:
+            for line in reversed(f.readlines()): # Show newest first
+                try:
+                    alerts_data.append(json.loads(line.strip()))
+                except Exception:
+                    pass
+    
+    if alerts_data:
+        df_alerts = pd.DataFrame(alerts_data)
+        # Reorder columns and format
+        if not df_alerts.empty:
+            df_alerts['timestamp'] = pd.to_datetime(df_alerts['timestamp']).dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Style based on level
+            def color_level(val):
+                color = 'red' if val == 'CRITICAL' else 'orange' if val == 'HIGH' else 'yellow' if val == 'MODERATE' else 'green'
+                return f'color: {color}'
+            
+            st.dataframe(
+                df_alerts[['timestamp', 'level', 'risk_score', 'context']].style.map(color_level, subset=['level']),
+                use_container_width=True
+            )
+    else:
+        st.info("No active alerts found in the system log.")
+
+elif view == "Analytics":
+    st.header("Edge AI Risk Analytics")
+    st.markdown("This section utilizes a **unique, lightweight Neural Network (MLP)** specifically tailored to run efficiently on 2GB RAM edge devices (e.g., Raspberry Pi 4/5).")
+    
+    risk_engine = RiskEngine(model_path=os.path.join(os.path.dirname(__file__), '..', 'ml', 'models', 'risk_model.joblib'))
+    if not getattr(risk_engine, 'is_trained', False):
+        st.warning("The Edge ML Model is currently untrained or using fallback heuristic rules. Let's initialize and train the edge-optimized model.")
+        if st.button("Initialize & Train Edge Model"):
+            with st.spinner("Training lightweight Neural Network on edge..."):
+                risk_engine.train_model()
+            st.success("Edge Model Trained Successfully! Refreshing analytics...")
+            st.rerun()
+            
+    st.subheader("Live Real-time Model Prediction")
+    
+    # Calculate features for Live Prediction
+    # We use live_kp mapped to a 0-1 range roughly, or just use live values
+    # The dummy model expects features in some range. Our dummy features were 0-1 range.
+    # Let's normalize the live values roughly to 0-1 for the sake of the dummy model.
+    storm_severity = min(live_kp / 9.0, 1.0) if live_kp > 0 else 0.5
+    ground_activity = min(abs(live_db_dt_series[-1] if 'live_db_dt_series' in locals() and len(live_db_dt_series) > 0 else 0.0) / 10.0, 1.0)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Feature: Storm Severity", f"{storm_severity:.2f}")
+    col2.metric("Feature: Ground Activity", f"{ground_activity:.2f}")
+    
+    # Assume global baseline for live analytics overview
+    grid_stress = min(stress_engine.calculate_index_from_dbdt(np.array([0]), 50.0, bt=live_bt, bz=live_bz), 1.0)
+    col3.metric("Feature: Grid Stress", f"{grid_stress:.2f}")
+    
+    facility_exposure = 0.5 # Mean exposure
+    col4.metric("Feature: Facility Exposure", f"{facility_exposure:.2f}")
+    
+    live_risk = risk_engine.calculate_risk_score(storm_severity, ground_activity, grid_stress, facility_exposure)
+    live_alert = risk_engine.get_alert_level(live_risk)
+    
+    st.divider()
+    
+    score_col, alert_col = st.columns(2)
+    with score_col:
+        st.markdown(f"### Current Aggregated Risk Score: `{live_risk:.3f}`")
+        st.progress(live_risk)
+    
+    with alert_col:
+        st.markdown(f"### System State: **{live_alert}**")
+        if live_alert == "CRITICAL":
+            st.error("Immediate Mitigation Required!")
+        elif live_alert == "HIGH":
+            st.warning("Monitor Data Center Power Stability")
+        elif live_alert == "MODERATE":
+            st.info("Elevated Activity - Normal Operations")
+        else:
+            st.success("Nominal Space Weather Conditions")
+
 
 

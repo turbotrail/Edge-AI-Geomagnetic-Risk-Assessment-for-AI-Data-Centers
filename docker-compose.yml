@@ -25,6 +25,8 @@ services:
     command: python ingestion/noaa_swpc.py
     depends_on:
       - influxdb
+    volumes:
+      - .:/app
     restart: always
 
   magnetometer_ingestion:
@@ -33,6 +35,8 @@ services:
     command: python ingestion/magnetometer_ingestion.py
     depends_on:
       - influxdb
+    volumes:
+      - .:/app
     restart: always
 
   dashboard:
@@ -43,6 +47,8 @@ services:
       - "8501:8501"
     depends_on:
       - influxdb
+    volumes:
+      - .:/app
     restart: always
 
 volumes:

@@ -302,13 +302,37 @@ if view == "Live Dashboard":
         
     target_station = get_closest_station(target_lat, target_lon, influx_client, bucket)
         
-    # Fetch real magnetometer data for this station
+        # Fetch real magnetometer data for this station
     df_mag = fetch_historical_series(influx_client, bucket, "magnetometer", "db_dt", station=target_station)
     if not df_mag.empty:
         live_db_dt_series = df_mag['db_dt'].values
         calculated_stress = stress_engine.calculate_index_from_dbdt(live_db_dt_series, target_lat, bt=live_bt, bz=live_bz)
+        ground_activity = min(abs(live_db_dt_series[-1]) / 10.0, 1.0)
     else:
         calculated_stress = 0.0
+        ground_activity = 0.0
+
+    # Calculate ML Risk Score for the selected location
+    risk_engine = RiskEngine(model_path=os.path.join(os.path.dirname(__file__), '..', 'ml', 'models', 'risk_model.joblib'))
+    storm_severity = min(live_kp / 9.0, 1.0) if live_kp > 0 else 0.5
+    
+    if selected_option == "Global Baseline (50° Lat)":
+        exposure = (calculated_stress + (50.0/90.0)**2) * 0.5
+    else:
+        exposure = exposure_engine.calculate_facility_exposure(dc["id"], calculated_stress)
+        
+    ml_risk_score = risk_engine.calculate_risk_score(storm_severity, ground_activity, calculated_stress, exposure)
+    alert_level = risk_engine.get_alert_level(ml_risk_score)
+    
+    # Display an eye-catching AI alert banner based on the live Neural Network evaluation
+    if alert_level == "CRITICAL":
+        st.error(f"🚨 **CRITICAL GEOMAGNETIC ALERT** — Neural Network Risk Score: {ml_risk_score:.4f} 🚨")
+    elif alert_level == "HIGH":
+        st.warning(f"⚠️ **HIGH RISK** — Neural Network Risk Score: {ml_risk_score:.4f} ⚠️")
+    elif alert_level == "MODERATE":
+        st.info(f"🟡 **MODERATE RISK** — Neural Network Risk Score: {ml_risk_score:.4f}")
+    else:
+        st.success(f"✅ **SYSTEM NOMINAL** — Neural Network Risk Score: {ml_risk_score:.4f}")
 
     col1, col2, col3, col4, col5 = st.columns(5)
     
@@ -398,7 +422,46 @@ elif view == "Data Center Risk Map":
         
     df_map = pd.DataFrame(map_data)
     
-    st.map(df_map, color="color", size=5000)
+    import pydeck as pdk
+    
+    def hex_to_rgb(h):
+        h = h.lstrip('#')
+        return [int(h[i:i+2], 16) for i in (0, 2, 4)] + [200]
+        
+    df_map['color_rgb'] = df_map['color'].apply(hex_to_rgb)
+    
+    view_state = pdk.ViewState(
+        latitude=35.0,
+        longitude=0.0,
+        zoom=1.2,
+        min_zoom=1.2,  # Prevents zooming out far enough to see map repetition
+        max_zoom=12,
+        pitch=45       # Gives a premium 3D tilted aesthetic
+    )
+    
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_map,
+        get_position='[lon, lat]',
+        get_color='color_rgb',
+        get_radius=600000,
+        pickable=True,
+        stroked=True,
+        filled=True,
+        radius_scale=1,
+        radius_min_pixels=10,
+        radius_max_pixels=100,
+        line_width_min_pixels=1,
+    )
+    
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style="mapbox://styles/mapbox/dark-v11",
+        tooltip={"text": "{name}\nRisk Score: {risk}\nAlert Level: {alert}"}
+    )
+    
+    st.pydeck_chart(deck, use_container_width=True)
     
     st.subheader("Facility Breakdown")
     # Display the ML risk and the resulting alert level

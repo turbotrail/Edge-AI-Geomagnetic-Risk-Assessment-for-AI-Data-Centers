@@ -444,20 +444,20 @@ elif view == "Data Center Risk Map":
         data=df_map,
         get_position='[lon, lat]',
         get_color='color_rgb',
-        get_radius=600000,
+        get_radius=50000,  # 50km radius for much smaller, cleaner dots
         pickable=True,
         stroked=True,
         filled=True,
         radius_scale=1,
-        radius_min_pixels=10,
-        radius_max_pixels=100,
+        radius_min_pixels=6,
+        radius_max_pixels=20,
         line_width_min_pixels=1,
     )
     
     deck = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/dark-v11",
+        map_style='dark',
         tooltip={"text": "{name}\nRisk Score: {risk}\nAlert Level: {alert}"}
     )
     

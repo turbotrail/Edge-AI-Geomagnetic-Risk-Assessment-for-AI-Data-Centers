@@ -68,6 +68,24 @@ def fetch_latest_metric(client, bucket_name, measurement, field, source=None):
         logging.error(f"InfluxDB Query Error: {e}")
     return 0.0
 
+def fetch_latest_local_b(client, location):
+    if not client: return 0.0
+    query = f'''
+        from(bucket: "mag_sensor")
+        |> range(start: -30d)
+        |> filter(fn: (r) => r["_measurement"] == "magnetometer")
+        |> filter(fn: (r) => r["_field"] == "B")
+        |> filter(fn: (r) => r["location"] == "{location}")
+        |> last()
+    '''
+    try:
+        result = client.query_api().query(query)
+        if result and len(result) > 0 and len(result[0].records) > 0:
+            return result[0].records[0].get_value()
+    except Exception as e:
+        pass
+    return 0.0
+
 def fetch_historical_series(client, bucket_name, measurement, field, source=None, station=None):
     if not client: return pd.DataFrame(columns=['_time', field]).set_index('_time')
     
@@ -294,11 +312,13 @@ if view == "Live Dashboard":
         target_lat = 50.0
         target_lon = -105.2 # Boulder longitude
         stress_label = f"Grid Stress Index (BOU Baseline)"
+        local_b = 0.0
     else:
         dc = next(dc for dc in datacenters if dc["name"] == selected_option)
         target_lat = dc["lat"]
         target_lon = dc["lon"]
         stress_label = f"Grid Stress ({dc['grid_region']})"
+        local_b = fetch_latest_local_b(influx_client, dc["name"])
         
     target_station = get_closest_station(target_lat, target_lon, influx_client, bucket)
         
@@ -321,7 +341,7 @@ if view == "Live Dashboard":
     else:
         exposure = exposure_engine.calculate_facility_exposure(dc["id"], calculated_stress)
         
-    ml_risk_score = risk_engine.calculate_risk_score(storm_severity, ground_activity, calculated_stress, exposure)
+    ml_risk_score = risk_engine.calculate_risk_score(storm_severity, ground_activity, calculated_stress, exposure, local_b)
     alert_level = risk_engine.get_alert_level(ml_risk_score)
     
     # Display an eye-catching AI alert banner based on the live Neural Network evaluation
@@ -334,7 +354,7 @@ if view == "Live Dashboard":
     else:
         st.success(f"✅ **SYSTEM NOMINAL** — Neural Network Risk Score: {ml_risk_score:.4f}")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         st.metric("Current Kp Index", display_kp)
@@ -346,6 +366,8 @@ if view == "Live Dashboard":
         st.metric("F10.7 Solar Flux", display_f107)
     with col5:
         st.metric(stress_label, f"{calculated_stress:.2f}/1.00")
+    with col6:
+        st.metric("Local B Field", f"{local_b:.1f} nT" if local_b > 0 else "N/A")
         
     st.divider()
     st.subheader("Geomagnetic Activity Trends (Last 24 Hours)")
@@ -395,8 +417,10 @@ elif view == "Data Center Risk Map":
         exposure = exposure_engine.calculate_facility_exposure(dc["id"], local_stress)
         storm_severity = min(live_kp / 9.0, 1.0) if live_kp > 0 else 0.5
         
-        # Feed all 4 features into the ML Model for this specific data center
-        ml_risk_score = risk_engine.calculate_risk_score(storm_severity, local_ground_activity, local_stress, exposure)
+        local_b = fetch_latest_local_b(influx_client, dc["name"])
+        
+        # Feed all 5 features into the ML Model for this specific data center
+        ml_risk_score = risk_engine.calculate_risk_score(storm_severity, local_ground_activity, local_stress, exposure, local_b)
         alert_level = risk_engine.get_alert_level(ml_risk_score)
         
         ml_risk_score = round(ml_risk_score, 4)
@@ -525,14 +549,18 @@ elif view == "Analytics":
     col1.metric("Feature: Storm Severity", f"{storm_severity:.2f}")
     col2.metric("Feature: Ground Activity", f"{ground_activity:.2f}")
     
-    # Assume global baseline for live analytics overview
     grid_stress = min(stress_engine.calculate_index_from_dbdt(np.array([0]), 50.0, bt=live_bt, bz=live_bz), 1.0)
     col3.metric("Feature: Grid Stress", f"{grid_stress:.2f}")
     
     facility_exposure = 0.5 # Mean exposure
     col4.metric("Feature: Facility Exposure", f"{facility_exposure:.2f}")
     
-    live_risk = risk_engine.calculate_risk_score(storm_severity, ground_activity, grid_stress, facility_exposure)
+    # In Live Analytics overview, use the first datacenter's local B or 0 if none
+    sample_dc_name = exposure_engine.get_all_datacenters()[0]["name"] if len(exposure_engine.get_all_datacenters()) > 0 else "Unknown"
+    local_b_analytics = fetch_latest_local_b(influx_client, sample_dc_name)
+    st.metric("Feature: Local B Field (Raw)", f"{local_b_analytics:.1f}")
+    
+    live_risk = risk_engine.calculate_risk_score(storm_severity, ground_activity, grid_stress, facility_exposure, local_b_analytics)
     live_alert = risk_engine.get_alert_level(live_risk)
     
     st.divider()

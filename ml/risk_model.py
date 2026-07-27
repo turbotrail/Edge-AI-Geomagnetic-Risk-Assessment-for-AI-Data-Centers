@@ -60,12 +60,12 @@ class RiskEngine:
             logging.info(f"Training model with real historical data from {data_path}...")
             df = pd.read_csv(data_path)
             
-            # Features: [storm_severity, ground_activity, grid_stress, facility_exposure]
-            X = df[['storm_severity', 'ground_activity', 'grid_stress', 'facility_exposure']].values
+            # Features: [storm_severity, ground_activity, grid_stress, facility_exposure, local_b_field]
+            X = df[['storm_severity', 'ground_activity', 'grid_stress', 'facility_exposure', 'local_b_field']].values
             y = df['risk_label'].values
         else:
             logging.warning(f"Training data not found at {data_path}. Falling back to dummy data...")
-            X = np.random.rand(100, 4)
+            X = np.random.rand(100, 5)
             y = (X.sum(axis=1) // 1).astype(int) 
             y = np.clip(y, 0, 3)
             
@@ -77,16 +77,16 @@ class RiskEngine:
         joblib.dump(self.model, self.model_path)
         logging.info(f"Saved trained model to {self.model_path}")
 
-    def calculate_risk_score(self, storm_severity: float, ground_activity: float, grid_stress: float, facility_exposure: float) -> float:
+    def calculate_risk_score(self, storm_severity: float, ground_activity: float, grid_stress: float, facility_exposure: float, local_b_field: float = 0.0) -> float:
         """
         Calculate the overall AI operational risk score using the ML model.
         Returns a float between 0.0 and 1.0 (approximated from probabilities).
         """
         if not getattr(self, 'is_trained', True):
             logging.warning("Model is untrained. Falling back to simple heuristic.")
-            return (storm_severity * 0.35 + ground_activity * 0.30 + grid_stress * 0.20 + facility_exposure * 0.15)
+            return (storm_severity * 0.30 + ground_activity * 0.25 + grid_stress * 0.20 + facility_exposure * 0.15 + local_b_field * 0.10)
             
-        features = np.array([[storm_severity, ground_activity, grid_stress, facility_exposure]])
+        features = np.array([[storm_severity, ground_activity, grid_stress, facility_exposure, local_b_field]])
         
         try:
             # Get probabilities for all classes [Low, Moderate, High, Critical]
@@ -136,7 +136,8 @@ if __name__ == "__main__":
         storm_severity=0.6,
         ground_activity=0.4,
         grid_stress=0.2,
-        facility_exposure=0.5
+        facility_exposure=0.5,
+        local_b_field=0.3
     )
     
     alert = engine.get_alert_level(simulated_risk)

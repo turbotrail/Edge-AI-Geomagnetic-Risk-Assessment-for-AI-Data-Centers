@@ -15,6 +15,7 @@ services:
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=your-influxdb-token-here
     volumes:
       - influxdb_data:/var/lib/influxdb2
+      - ./configs/influx-init.sh:/docker-entrypoint-initdb.d/influx-init.sh
     restart: always
 
 

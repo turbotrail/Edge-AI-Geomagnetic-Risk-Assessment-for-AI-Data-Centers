@@ -51,6 +51,7 @@ def record_magnetometer(x, y, z):
         point = (
             Point("magnetometer")
             .tag("sensor", "mmc5603")
+            .tag("location", "Ashburn Data Center Alley (VA)")
             .field("x", avg_x)
             .field("y", avg_y)
             .field("z", avg_z)

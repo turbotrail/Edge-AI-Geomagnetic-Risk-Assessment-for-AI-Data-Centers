@@ -60,13 +60,19 @@ class RiskEngine:
             logging.info(f"Training model with real historical data from {data_path}...")
             df = pd.read_csv(data_path)
             
+            # If historical data doesn't have the new local_b_field, generate synthetic baseline
+            if 'local_b_field' not in df.columns:
+                df['local_b_field'] = np.random.normal(loc=1000.0, scale=100.0, size=len(df))
+            
             # Features: [storm_severity, ground_activity, grid_stress, facility_exposure, local_b_field]
             X = df[['storm_severity', 'ground_activity', 'grid_stress', 'facility_exposure', 'local_b_field']].values
             y = df['risk_label'].values
         else:
             logging.warning(f"Training data not found at {data_path}. Falling back to dummy data...")
             X = np.random.rand(100, 5)
-            y = (X.sum(axis=1) // 1).astype(int) 
+            # Scale the 5th feature to realistic B field values
+            X[:, 4] = X[:, 4] * 2000.0 
+            y = (X[:, :4].sum(axis=1) // 1).astype(int) 
             y = np.clip(y, 0, 3)
             
         self.model.fit(X, y)

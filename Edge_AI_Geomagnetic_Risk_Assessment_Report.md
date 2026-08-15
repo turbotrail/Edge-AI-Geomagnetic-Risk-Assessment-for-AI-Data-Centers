@@ -7,7 +7,7 @@
 This project proposes an **edge-computing framework** that continuously
 evaluates the risk posed by solar storms and geomagnetic disturbances to
 AI data centers using a low-cost Single Board Computer (SBC) such as a
-Raspberry Pi 5.
+Arduino Uno Q.
 
 Unlike traditional space weather dashboards, the system transforms
 scientific observations into infrastructure-oriented risk intelligence
@@ -62,7 +62,7 @@ Satellite → HPC → Research Paper
 
 Proposed workflow:
 
-Satellite → Raspberry Pi → Continuous Risk Assessment → Dashboard →
+Satellite → Arduino Uno Q → Continuous Risk Assessment → Dashboard →
 Alerts
 
 ------------------------------------------------------------------------
@@ -369,11 +369,10 @@ Compare
 
 Target hardware
 
--   Raspberry Pi 5
--   NVMe SSD
--   UPS
--   Local magnetometer
--   LoRa/Wi-Fi
+-   Arduino Uno Q
+-   Adafruit Triple-axis Magnetometer - MMC5603 -STEMMA QT / Qwiic
+-   Wi-Fi
+-  STEMMA QT / Qwiic connector
 
 Software
 

@@ -525,7 +525,7 @@ elif view == "Alerts":
 
 elif view == "Analytics":
     st.header("Edge AI Risk Analytics")
-    st.markdown("This section utilizes a **unique, lightweight Neural Network (MLP)** specifically tailored to run efficiently on 2GB RAM edge devices (e.g., Raspberry Pi 4/5).")
+    st.markdown("This section utilizes a **unique, lightweight Neural Network (MLP)** specifically tailored to run efficiently on 2GB RAM edge devices.")
     
     risk_engine = RiskEngine(model_path=os.path.join(os.path.dirname(__file__), '..', 'ml', 'models', 'risk_model.joblib'))
     if not getattr(risk_engine, 'is_trained', False):
